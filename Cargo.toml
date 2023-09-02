@@ -1,0 +1,20 @@
+[package]
+name = "satin"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ahash = "0.8"
+cranelift-codegen = "0.99"
+cranelift-entity = "0.99"
+cranelift-frontend = "0.99"
+logos = "0.13"
+thiserror = "1"
+
+[dependencies.clap]
+version = "4"
+features = ["cargo", "derive", "env", "unicode", "wrap_help"]
+
+[dependencies.lexical]
+version = "6"
+features = ["format", "power-of-two"]
