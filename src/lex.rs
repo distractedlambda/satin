@@ -3,14 +3,12 @@
 use {
     lexical::{parse_float_options, parse_integer_options, NumberFormatBuilder},
     logos::{FilterResult, Lexer, Logos},
-    std::ops::Range,
     thiserror::Error,
 };
 
-pub fn tokens<'a>(
-    source: &'a [u8],
-) -> impl Iterator<Item = (Result<Token, Error>, Range<usize>)> + 'a {
-    Token::lexer(source).spanned()
+#[derive(Default)]
+pub struct Extras {
+    string_contents: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Default, Error, PartialEq)]
@@ -70,9 +68,10 @@ fn long_comment<T>(lexer: &mut Lexer<Token>) -> FilterResult<T, Error> {
     }
 }
 
-fn short_string(lexer: &mut Lexer<Token>, kind: ShortStringKind) -> Result<Vec<u8>, Error> {
+fn short_string(lexer: &mut Lexer<Token>, kind: ShortStringKind) -> Result<(), Error> {
+    lexer.extras.string_contents.clear();
+
     let mut sub_lexer = ShortStringToken::lexer(lexer.remainder());
-    let mut contents = Vec::new();
 
     let status = loop {
         let token = match sub_lexer.next() {
@@ -82,39 +81,42 @@ fn short_string(lexer: &mut Lexer<Token>, kind: ShortStringKind) -> Result<Vec<u
         };
 
         match token {
-            ShortStringToken::LiteralSegment => contents.extend_from_slice(sub_lexer.slice()),
+            ShortStringToken::LiteralSegment => lexer
+                .extras
+                .string_contents
+                .extend_from_slice(sub_lexer.slice()),
 
             ShortStringToken::SingleQuote => match kind {
                 ShortStringKind::SingleQuote => break Ok(()),
-                ShortStringKind::DoubleQuote => contents.push(b'\''),
+                ShortStringKind::DoubleQuote => lexer.extras.string_contents.push(b'\''),
             },
 
             ShortStringToken::DoubleQuote => match kind {
-                ShortStringKind::SingleQuote => contents.push(b'"'),
+                ShortStringKind::SingleQuote => lexer.extras.string_contents.push(b'"'),
                 ShortStringKind::DoubleQuote => break Ok(()),
             },
 
-            ShortStringToken::BellEscape => contents.push(0x07),
+            ShortStringToken::BellEscape => lexer.extras.string_contents.push(0x07),
 
-            ShortStringToken::BackspaceEscape => contents.push(0x08),
+            ShortStringToken::BackspaceEscape => lexer.extras.string_contents.push(0x08),
 
-            ShortStringToken::FormFeedEscape => contents.push(0x0c),
+            ShortStringToken::FormFeedEscape => lexer.extras.string_contents.push(0x0c),
 
-            ShortStringToken::NewlineEscape => contents.push(b'\n'),
+            ShortStringToken::NewlineEscape => lexer.extras.string_contents.push(b'\n'),
 
-            ShortStringToken::CarriageReturnEscape => contents.push(b'\r'),
+            ShortStringToken::CarriageReturnEscape => lexer.extras.string_contents.push(b'\r'),
 
-            ShortStringToken::TabEscape => contents.push(b'\t'),
+            ShortStringToken::TabEscape => lexer.extras.string_contents.push(b'\t'),
 
-            ShortStringToken::VerticalTabEscape => contents.push(0x0b),
+            ShortStringToken::VerticalTabEscape => lexer.extras.string_contents.push(0x0b),
 
-            ShortStringToken::BackslashEscape => contents.push(b'\\'),
+            ShortStringToken::BackslashEscape => lexer.extras.string_contents.push(b'\\'),
 
-            ShortStringToken::DoubleQuoteEscape => contents.push(b'"'),
+            ShortStringToken::DoubleQuoteEscape => lexer.extras.string_contents.push(b'"'),
 
-            ShortStringToken::SingleQuoteEscape => contents.push(b'\''),
+            ShortStringToken::SingleQuoteEscape => lexer.extras.string_contents.push(b'\''),
 
-            ShortStringToken::HexEscape => contents.push(
+            ShortStringToken::HexEscape => lexer.extras.string_contents.push(
                 lexical::parse_with_options::<_, _, HEX_INT_FORMAT>(
                     &sub_lexer.slice()[3..5],
                     &parse_integer_options::STANDARD,
@@ -122,7 +124,7 @@ fn short_string(lexer: &mut Lexer<Token>, kind: ShortStringKind) -> Result<Vec<u
                 .unwrap(),
             ),
 
-            ShortStringToken::DecEscape => contents.push(
+            ShortStringToken::DecEscape => lexer.extras.string_contents.push(
                 lexical::parse(&sub_lexer.slice()[1..]).map_err(|_| Error::InvalidDecEscape)?,
             ),
 
@@ -134,27 +136,27 @@ fn short_string(lexer: &mut Lexer<Token>, kind: ShortStringKind) -> Result<Vec<u
                 .map_err(|_| Error::InvalidUnicodeEscape)? as u32;
 
                 match scalar {
-                    0..=0x7f => contents.push(scalar as _),
+                    0..=0x7f => lexer.extras.string_contents.push(scalar as _),
 
-                    0x80..=0x7ff => contents.extend_from_slice(&[
+                    0x80..=0x7ff => lexer.extras.string_contents.extend_from_slice(&[
                         (0xc0 | (scalar >> 6)) as _,
                         (0x80 | (scalar & 0x3f)) as _,
                     ]),
 
-                    0x800..=0xffff => contents.extend_from_slice(&[
+                    0x800..=0xffff => lexer.extras.string_contents.extend_from_slice(&[
                         (0xe0 | (scalar >> 12)) as _,
                         (0x80 | ((scalar >> 6) & 0x3f)) as _,
                         (0x80 | (scalar & 0x3f)) as _,
                     ]),
 
-                    0x10000..=0x1fffff => contents.extend_from_slice(&[
+                    0x10000..=0x1fffff => lexer.extras.string_contents.extend_from_slice(&[
                         (0xf0 | (scalar >> 18)) as _,
                         (0x80 | ((scalar >> 12) & 0x3f)) as _,
                         (0x80 | ((scalar >> 6) & 0x3f)) as _,
                         (0x80 | (scalar & 0x3f)) as _,
                     ]),
 
-                    0x200000..=0x3ffffff => contents.extend_from_slice(&[
+                    0x200000..=0x3ffffff => lexer.extras.string_contents.extend_from_slice(&[
                         (0xf8 | (scalar >> 24)) as _,
                         (0x80 | ((scalar >> 18) & 0x3f)) as _,
                         (0x80 | ((scalar >> 12) & 0x3f)) as _,
@@ -162,7 +164,7 @@ fn short_string(lexer: &mut Lexer<Token>, kind: ShortStringKind) -> Result<Vec<u
                         (0x80 | (scalar & 0x3f)) as _,
                     ]),
 
-                    0x4000000..=0x7fffffff => contents.extend_from_slice(&[
+                    0x4000000..=0x7fffffff => lexer.extras.string_contents.extend_from_slice(&[
                         (0xfc | (scalar >> 30)) as _,
                         (0x80 | ((scalar >> 24) & 0x3f)) as _,
                         (0x80 | ((scalar >> 18) & 0x3f)) as _,
@@ -178,11 +180,12 @@ fn short_string(lexer: &mut Lexer<Token>, kind: ShortStringKind) -> Result<Vec<u
     };
 
     lexer.bump(sub_lexer.span().end);
-    status?;
-    Ok(contents)
+    status
 }
 
-fn long_string(lexer: &mut Lexer<Token>) -> Result<Vec<u8>, Error> {
+fn long_string(lexer: &mut Lexer<Token>) -> Result<(), Error> {
+    lexer.extras.string_contents.clear();
+
     let open_len = lexer.span().len();
 
     if matches!(lexer.slice(), &[b'\n', ..]) {
@@ -190,26 +193,31 @@ fn long_string(lexer: &mut Lexer<Token>) -> Result<Vec<u8>, Error> {
     }
 
     let mut sub_lexer = LongLiteralToken::lexer(lexer.remainder());
-    let mut contents = Vec::new();
 
     loop {
         match sub_lexer.next().ok_or(Error::UnclosedLongLiteral)?? {
-            LongLiteralToken::LiteralSegment => contents.extend_from_slice(sub_lexer.slice()),
+            LongLiteralToken::LiteralSegment => lexer
+                .extras
+                .string_contents
+                .extend_from_slice(sub_lexer.slice()),
 
-            LongLiteralToken::LineEnding => contents.push(b'\n'),
+            LongLiteralToken::LineEnding => lexer.extras.string_contents.push(b'\n'),
 
             LongLiteralToken::ClosingLongBracket => {
                 if sub_lexer.span().len() == open_len {
                     break;
                 } else {
-                    contents.extend_from_slice(sub_lexer.slice())
+                    lexer
+                        .extras
+                        .string_contents
+                        .extend_from_slice(sub_lexer.slice())
                 }
             }
         }
     }
 
     lexer.bump(sub_lexer.span().end);
-    Ok(contents)
+    Ok(())
 }
 
 fn dec_int(lexer: &mut Lexer<Token>) -> Numeral {
@@ -268,16 +276,16 @@ pub enum Numeral {
 }
 
 #[derive(Debug, Logos)]
-#[logos(error = Error, skip br"[ \f\n\r\t\v]", skip br"--[^\r\n]*")]
+#[logos(error = Error, extras = Extras, skip br"[ \f\n\r\t\v]", skip br"--[^\r\n]*")]
 pub enum Token {
     #[regex(br"--\[=*\[", long_comment)]
     #[regex(b"[_a-zA-Z][_0-9a-zA-Z]*")]
     Name,
 
-    #[token(b"'", |lexer| short_string(lexer, ShortStringKind::SingleQuote))]
-    #[token(b"\"", |lexer| short_string(lexer, ShortStringKind::DoubleQuote))]
+    #[token(b"'", |lex| short_string(lex, ShortStringKind::SingleQuote))]
+    #[token(b"\"", |lex| short_string(lex, ShortStringKind::DoubleQuote))]
     #[regex(br"\[=*\[", long_string)]
-    String(Vec<u8>),
+    String,
 
     #[regex(b"[0-9]+", dec_int)]
     #[regex(b"0[xX][0-9a-fA-F]+", hex_int)]

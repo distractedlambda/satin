@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 ahash = "0.8"
+cranelift-bforest = "0.99"
 cranelift-codegen = "0.99"
 cranelift-entity = "0.99"
 cranelift-frontend = "0.99"
