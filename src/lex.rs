@@ -8,7 +8,7 @@ use {
 
 #[derive(Default)]
 pub struct Extras {
-    string_contents: Vec<u8>,
+    pub string_contents: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Default, Error, PartialEq)]
@@ -225,11 +225,12 @@ fn dec_int(lexer: &mut Lexer<Token>) -> Numeral {
         Ok(v) => Numeral::Int(v),
 
         Err(_) => Numeral::Float(
-            lexical::parse_with_options::<_, _, DEC_FLOAT_FORMAT>(
+            lexical::parse_with_options::<f64, _, DEC_FLOAT_FORMAT>(
                 lexer.slice(),
                 &parse_float_options::STANDARD,
             )
-            .unwrap(),
+            .unwrap()
+            .to_bits(),
         ),
     }
 }
@@ -251,31 +252,33 @@ fn hex_int(lexer: &mut Lexer<Token>) -> Numeral {
 
 fn dec_float(lexer: &mut Lexer<Token>) -> Numeral {
     Numeral::Float(
-        lexical::parse_with_options::<_, _, DEC_FLOAT_FORMAT>(
+        lexical::parse_with_options::<f64, _, DEC_FLOAT_FORMAT>(
             lexer.slice(),
             &parse_float_options::STANDARD,
         )
-        .unwrap(),
+        .unwrap()
+        .to_bits(),
     )
 }
 
 fn hex_float(lexer: &mut Lexer<Token>) -> Numeral {
     Numeral::Float(
-        lexical::parse_with_options::<_, _, HEX_FLOAT_FORMAT>(
+        lexical::parse_with_options::<f64, _, HEX_FLOAT_FORMAT>(
             &lexer.slice()[2..],
             &parse_float_options::HEX_FLOAT,
         )
-        .unwrap(),
+        .unwrap()
+        .to_bits(),
     )
 }
 
 #[derive(Clone, Copy, Debug)]
 pub enum Numeral {
     Int(i64),
-    Float(f64),
+    Float(u64),
 }
 
-#[derive(Debug, Logos)]
+#[derive(Clone, Copy, Debug, Logos)]
 #[logos(error = Error, extras = Extras, skip br"[ \f\n\r\t\v]", skip br"--[^\r\n]*")]
 pub enum Token {
     #[regex(br"--\[=*\[", long_comment)]
