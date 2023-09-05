@@ -1,14 +1,13 @@
-use cranelift_bforest::{MapForest, Map};
-
 use {
     ahash::AHashMap,
+    cranelift_bforest::{Map, MapForest},
     cranelift_entity::{packed_option::PackedOption, EntityList, EntityRef, PrimaryMap},
     std::{borrow::Borrow, hash::Hash, sync::Arc},
 };
 
 macro_rules! id_type {
     ($name:ident) => {
-        #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
         pub struct $name(u32);
 
         cranelift_entity::entity_impl!($name);
@@ -21,82 +20,107 @@ id_type!(StringRef);
 id_type!(ValueRef);
 id_type!(TypeRef);
 
+/// An operation carried out by an [Instruction].
 #[derive(Clone)]
 pub enum Op {
+    /// Constructs and initializes a new table, with semantics modeled after
+    /// Lua's [table
+    /// constructors][https://www.lua.org/manual/5.4/manual.html#3.4.9].
+    ///
+    /// Note that, unlike the Lua construct, this instruction cannot contain
+    /// nested computation or control; it merely represents the final step of
+    /// collecting already-evaluated field initializers into a table.
     NewTable {
         keyed_values: Map<ValueRef, ValueRef>,
         trailing_values: PackedOption<ValueRef>,
         trailing_values_start_index: i64,
     },
 
-    NewLocal,
+    /// Constructs a new `local` variable with an initial value. Since `local`s
+    /// in Lua have "location semantics" (mutations are observed everywhere in
+    /// the local scope, including within escaped closures), we model them as a
+    /// distinct kind of mutable object holding a single value, where the IR
+    /// only tracks that object, not its contained value.
+    NewLocal { init: ValueRef },
 
+    /// Reads the current value of a `local` variable.
+    LocalLoad { local: ValueRef },
+
+    /// Writes a new value to a `local` variable.
+    LocalStore { local: ValueRef, value: ValueRef },
+
+    /// Performs a Lua indexed assignment (`a[b] = c` or `a.b = c`, or `a = b`
+    /// where `a` does not resolve to a `local`), possibly dispatching to a
+    /// metamethod.
     Newindex {
         table: ValueRef,
         key: ValueRef,
         value: ValueRef,
     },
 
-    LocalLoad {
-        local: ValueRef,
-    },
+    /// Performs a Lua function call in non-tail position, possibly dispatching
+    /// to a metamethod. The single `args` value represents the full pack of
+    /// arguments to the function.
+    Call { callee: ValueRef, args: ValueRef },
 
-    LocalStore {
-        local: ValueRef,
-        value: ValueRef,
-    },
+    /// Performs a Lua function call in tail position, possibly dispatching to a
+    /// metamethod. The single `args` value represents the full pack of
+    /// arguments to the function.
+    TailCall { callee: ValueRef, args: ValueRef },
 
-    Call {
-        callee: ValueRef,
-        args: ValueRef,
-    },
-
-    TailCall {
-        callee: ValueRef,
-        args: ValueRef,
-    },
-
+    /// Performs an unconditional branch to a [Block], potentially passing
+    /// [Value]s for the block's arguments.
     Branch {
         target: BlockRef,
         args: EntityList<ValueRef>,
     },
 
+    /// Performs a conditional branch to a [Block], potentially passing [Value]s
+    /// for the block's arguments. The treatment of the `condition` follow's
+    /// Lua's semantics (namely, `nil` and `false` are the only non-true
+    /// values).
     BranchIf {
         target: BlockRef,
         condition: ValueRef,
         args: EntityList<ValueRef>,
     },
 
-    Return {
-        values: ValueRef,
-    },
+    /// Performs a `return` from the containing function.
+    Return { values: ValueRef },
 }
 
+/// An operand to an [Instruction]. [Value]s may express computation by being
+/// defined in terms of other [Value]s, but are always pure, and are prohibited
+/// from forming cycles on their own.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Value {
+    /// Refers to an indexed argument of a [Block].
     BlockArg(BlockRef, u32),
+
+    /// Refers to the result of an [Instruction].
     InstructionResult(InstructionRef),
 
-    EmptyDynamicPack,
+    /// Represents a sequence of zero or more values, with the same semantics as
+    /// a comma-separated list of expressions in Lua.
+    MultipleValues(EntityList<ValueRef>),
 
-    DynamicNil,
-    DynamicBool(bool),
-    DynamicInt(i64),
-    DynamicFloat(u64),
-    DynamicString(StringRef),
+    /// A constant representing the Lua `nil` value.
+    Nil,
 
+    /// A constant representing a Lua `true` or `false` value.
     Bool(bool),
-    I64(i64),
-    F64(u64),
-    String(StringRef),
 
-    BoolToDynamic(ValueRef),
-    I64ToDynamic(ValueRef),
-    F64ToDynamic(ValueRef),
-    StringToDynamic(ValueRef),
-    TableToDynamic(ValueRef),
+    /// A constant representing a Lua integer number.
+    Int(i64),
+
+    /// A constant representing a Lua floating-point number.
+    Float(u64),
+
+    /// A constant representing a Lua string.
+    String(StringRef),
 }
 
+/// The type of a [Value].
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Type {
     Dynamic,
@@ -115,6 +139,9 @@ impl<'a> From<&'a Value> for Value {
     }
 }
 
+/// A control-dependent operation, which may cause or observe side-effects.
+/// Every [Instruction] exists within a [Block], in a linear order relative to
+/// other [Instruction]s in that same [Block].
 #[derive(Clone)]
 pub struct Instruction {
     op: Op,
@@ -129,6 +156,8 @@ pub struct Block {
     tail: PackedOption<InstructionRef>,
 }
 
+/// A [PrimaryMap] augmented with a hash table that deduplicates entities
+/// according to their [Hash] and [Eq] implementations.
 #[derive(Clone, Debug)]
 pub struct InterningMap<K: EntityRef, V>(PrimaryMap<K, V>, AHashMap<V, K>);
 

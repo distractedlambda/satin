@@ -5,7 +5,7 @@ use {
     },
     cranelift_bforest::Map,
     cranelift_entity::packed_option::PackedOption,
-    std::result,
+    std::{ops::Range, result},
     thiserror::Error,
 };
 
@@ -18,13 +18,13 @@ pub enum Error {
     UnexpectedEndOfInput,
 
     #[error("unexpected token")]
-    UnexpectedToken,
+    UnexpectedToken(Range<usize>),
 }
 
 struct Parser<'a> {
     graph: &'a mut Graph,
-    current_block: PackedOption<BlockRef>,
     token_stream: TokenStream<'a>,
+    current_block: PackedOption<BlockRef>,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -33,8 +33,8 @@ impl<'a> Parser<'a> {
     fn new(graph: &'a mut Graph, source: &'a [u8]) -> Self {
         Self {
             graph,
-            current_block: None.into(),
             token_stream: TokenStream::new(source),
+            current_block: None.into(),
         }
     }
 
@@ -42,8 +42,11 @@ impl<'a> Parser<'a> {
         self.token_stream.source()
     }
 
-    fn parse_expression(&mut self) -> Result<ValueRef> {
-        todo!()
+    fn next_token(&mut self) -> Result<SpannedToken> {
+        Ok(self
+            .token_stream
+            .next()
+            .ok_or(Error::UnexpectedEndOfInput)??)
     }
 
     fn emit_value(&mut self, value: Value) -> ValueRef {
@@ -58,18 +61,72 @@ impl<'a> Parser<'a> {
         self.emit_value(Value::InstructionResult(instruction))
     }
 
+    fn parse_block(&mut self) -> Result<()> {
+        todo!()
+    }
+
+    fn parse_statement(&mut self) -> Result<bool> {
+        let (token, span) = self.next_token()?;
+        match token {
+            Token::Semicolon => Ok(true),
+
+            Token::KwBreak => todo!(),
+
+            Token::KwGoto => {
+                let (token, span) = self.next_token()?;
+                if let Token::Name = token {
+                    todo!()
+                } else {
+                    Err(Error::UnexpectedToken(span))
+                }
+            }
+
+            Token::KwWhile => {
+                let condition = self.parse_expression()?;
+
+                let (token, span) = self.next_token()?;
+                if !matches!(token, Token::KwDo) {
+                    return Err(Error::UnexpectedToken(span));
+                }
+
+                self.parse_block()?;
+
+                let (token, span) = self.next_token()?;
+                if !matches!(token, Token::KwEnd) {
+                    return Err(Error::UnexpectedToken(span));
+                }
+
+                Ok(true)
+            }
+
+            Token::KwRepeat => {
+                self.parse_block()?;
+
+                let (token, span) = self.next_token()?;
+                if !matches!(token, Token::KwUntil) {
+                    return Err(Error::UnexpectedToken(span))
+                }
+
+                let condition = self.parse_expression()?;
+
+                todo!()
+            }
+
+
+
+            _ => Ok(false),
+        }
+    }
+
+    fn parse_expression(&mut self) -> Result<ValueRef> {
+        todo!()
+    }
+
     fn parse_atomic_expression(&mut self) -> Result<ValueRef> {
-        let SpannedToken {
-            ref token,
-            ref span,
-        } = self
-            .token_stream
-            .lookahead(1)?
-            .ok_or(Error::UnexpectedEndOfInput)?;
+        let (token, span) = self.next_token()?;
 
         match token {
             Token::Name => {
-                self.token_stream.advance(1);
                 todo!()
             }
 
@@ -100,20 +157,68 @@ impl<'a> Parser<'a> {
             }
 
             Token::LParen => {
-                self.token_stream.advance(1);
                 let inner = self.parse_expression()?;
-                todo!()
+                let (token, span) = self.next_token()?;
+                if let Token::RParen = token {
+                    Ok(inner)
+                } else {
+                    Err(Error::UnexpectedToken(span))
+                }
             }
 
             Token::LCurly => {
-                self.token_stream.advance(1);
-
                 let mut keyed_values = Map::new();
                 let mut trailing_values = None.into();
                 let mut trailing_values_start_index = 0;
 
                 loop {
-                    todo!()
+                    let (token, span) = self.next_token()?;
+
+                    match token {
+                        Token::RCurly => {
+                            break;
+                        }
+
+                        Token::LSquare => {
+                            let key = self.parse_expression()?;
+
+                            let (token, span) = self.next_token()?;
+
+                            if !matches!(token, Token::RSquare) {
+                                return Err(Error::UnexpectedToken(span));
+                            }
+
+                            let (token, span) = self.next_token()?;
+
+                            if !matches!(token, Token::Equals) {
+                                return Err(Error::UnexpectedToken(span));
+                            }
+
+                            let value = self.parse_expression()?;
+
+                            keyed_values.insert(key, value, &mut self.graph.value_maps, &());
+                        }
+
+                        Token::Name => {
+                            let (eq_token, eq_span) = self.next_token()?;
+                            if let Token::Equals = eq_token {
+                                todo!()
+                            } else {
+                                self.token_stream.backtrack((eq_token, eq_span));
+                                self.token_stream.backtrack((token, span));
+                            }
+                        }
+
+                        _ => todo!(),
+                    };
+
+                    let (token, span) = self.next_token()?;
+
+                    match token {
+                        Token::Semicolon | Token::Comma => (),
+                        Token::RCurly => break,
+                        _ => return Err(Error::UnexpectedToken(span)),
+                    }
                 }
 
                 Ok(self.emit_instruction(Op::NewTable {
@@ -127,7 +232,7 @@ impl<'a> Parser<'a> {
                 todo!()
             }
 
-            _ => return Err(Error::UnexpectedToken),
+            _ => return Err(Error::UnexpectedToken(span)),
         }
     }
 }

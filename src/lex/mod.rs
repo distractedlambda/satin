@@ -3,7 +3,7 @@
 pub use {error::Error, numeral::Numeral};
 use {
     logos::{Lexer, Logos},
-    std::{collections::VecDeque, ops::Range},
+    std::ops::Range,
 };
 
 mod error;
@@ -16,13 +16,10 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 pub struct TokenStream<'source> {
     lexer: Lexer<'source, Token>,
-    lookahead_buffer: VecDeque<SpannedToken>,
+    backtrack_stack: Vec<SpannedToken>,
 }
 
-pub struct SpannedToken {
-    pub token: Token,
-    pub span: Range<usize>,
-}
+pub type SpannedToken = (Token, Range<usize>);
 
 #[derive(Clone, Debug, Logos)]
 #[logos(error = Error, skip br"[ \f\n\r\t\v]", skip br"--[^\r\n]*")]
@@ -218,7 +215,7 @@ impl<'source> TokenStream<'source> {
     pub fn new(source: &'source [u8]) -> Self {
         Self {
             lexer: Token::lexer(source),
-            lookahead_buffer: VecDeque::new(),
+            backtrack_stack: Vec::new(),
         }
     }
 
@@ -226,33 +223,20 @@ impl<'source> TokenStream<'source> {
         self.lexer.source()
     }
 
-    fn grab_token(&mut self) -> Result<Option<SpannedToken>> {
-        if let Some(token) = self.lexer.next() {
-            let token = token?;
-            Ok(Some(SpannedToken {
-                token,
-                span: self.lexer.span(),
-            }))
+    pub fn backtrack(&mut self, token: SpannedToken) {
+        self.backtrack_stack.push(token)
+    }
+}
+
+impl<'source> Iterator for TokenStream<'source> {
+    type Item = Result<SpannedToken>;
+
+    fn next(&mut self) -> Option<Result<SpannedToken>> {
+        Some(if let Some(token) = self.backtrack_stack.pop() {
+            Ok(token)
         } else {
-            Ok(None)
-        }
-    }
-
-    pub fn lookahead(&mut self, offset: usize) -> Result<Option<&SpannedToken>> {
-        while self.lookahead_buffer.len() <= offset {
-            if let Some(token) = self.grab_token()? {
-                self.lookahead_buffer.push_back(token)
-            } else {
-                return Ok(None);
-            }
-        }
-
-        Ok(Some(&self.lookahead_buffer[offset]))
-    }
-
-    pub fn advance(&mut self, count: usize) {
-        for _ in 0..count {
-            self.lookahead_buffer.pop_front().unwrap();
-        }
+            let token = self.lexer.next()?;
+            token.map(|token| (token, self.lexer.span()))
+        })
     }
 }
