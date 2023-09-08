@@ -1,7 +1,7 @@
 use {
     ahash::AHashMap,
     cranelift_bforest::{Map, MapForest},
-    cranelift_entity::{packed_option::PackedOption, EntityList, EntityRef, PrimaryMap},
+    cranelift_entity::{packed_option::PackedOption, EntityList, EntityRef, ListPool, PrimaryMap},
     std::{borrow::Borrow, hash::Hash, sync::Arc},
 };
 
@@ -20,6 +20,10 @@ id_type!(StringRef);
 id_type!(ValueRef);
 id_type!(TypeRef);
 
+pub type ValueList = EntityList<ValueRef>;
+
+pub type ValueMap = Map<ValueRef, ValueRef>;
+
 /// An operation carried out by an [Instruction].
 #[derive(Clone)]
 pub enum Op {
@@ -31,9 +35,9 @@ pub enum Op {
     /// nested computation or control; it merely represents the final step of
     /// collecting already-evaluated field initializers into a table.
     NewTable {
-        keyed_values: Map<ValueRef, ValueRef>,
-        trailing_values: PackedOption<ValueRef>,
-        trailing_values_start_index: i64,
+        map: ValueMap,
+        list: ValueList,
+        trailing: PackedOption<ValueRef>,
     },
 
     /// Constructs a new `local` variable with an initial value. Since `local`s
@@ -41,13 +45,20 @@ pub enum Op {
     /// the local scope, including within escaped closures), we model them as a
     /// distinct kind of mutable object holding a single value, where the IR
     /// only tracks that object, not its contained value.
-    NewLocal { init: ValueRef },
+    NewLocal {
+        init: ValueRef,
+    },
 
     /// Reads the current value of a `local` variable.
-    LocalLoad { local: ValueRef },
+    LocalLoad {
+        local: ValueRef,
+    },
 
     /// Writes a new value to a `local` variable.
-    LocalStore { local: ValueRef, value: ValueRef },
+    LocalStore {
+        local: ValueRef,
+        value: ValueRef,
+    },
 
     /// Performs a Lua indexed assignment (`a[b] = c` or `a.b = c`, or `a = b`
     /// where `a` does not resolve to a `local`), possibly dispatching to a
@@ -61,18 +72,21 @@ pub enum Op {
     /// Performs a Lua function call in non-tail position, possibly dispatching
     /// to a metamethod. The single `args` value represents the full pack of
     /// arguments to the function.
-    Call { callee: ValueRef, args: ValueRef },
+    Call(ValueRef, ValueList),
 
     /// Performs a Lua function call in tail position, possibly dispatching to a
     /// metamethod. The single `args` value represents the full pack of
     /// arguments to the function.
-    TailCall { callee: ValueRef, args: ValueRef },
+    TailCall {
+        callee: ValueRef,
+        args: ValueRef,
+    },
 
     /// Performs an unconditional branch to a [Block], potentially passing
     /// [Value]s for the block's arguments.
     Branch {
         target: BlockRef,
-        args: EntityList<ValueRef>,
+        args: ValueList,
     },
 
     /// Performs a conditional branch to a [Block], potentially passing [Value]s
@@ -82,11 +96,35 @@ pub enum Op {
     BranchIf {
         target: BlockRef,
         condition: ValueRef,
-        args: EntityList<ValueRef>,
+        args: ValueList,
     },
 
     /// Performs a `return` from the containing function.
-    Return { values: ValueRef },
+    Return(ValueList),
+
+    Add(ValueRef, ValueRef),
+    BitAnd(ValueRef, ValueRef),
+    BitOr(ValueRef, ValueRef),
+    BitXor(ValueRef, ValueRef),
+    Concat(ValueRef, ValueRef),
+    Div(ValueRef, ValueRef),
+    Eq(ValueRef, ValueRef),
+    Floordiv(ValueRef, ValueRef),
+    Ge(ValueRef, ValueRef),
+    Gt(ValueRef, ValueRef),
+    Index(ValueRef, ValueRef),
+    Le(ValueRef, ValueRef),
+    Lt(ValueRef, ValueRef),
+    Mul(ValueRef, ValueRef),
+    Ne(ValueRef, ValueRef),
+    Pow(ValueRef, ValueRef),
+    Rem(ValueRef, ValueRef),
+    Sub(ValueRef, ValueRef),
+
+    Not(ValueRef),
+    Length(ValueRef),
+    BitNot(ValueRef),
+    Neg(ValueRef),
 }
 
 /// An operand to an [Instruction]. [Value]s may express computation by being
@@ -100,9 +138,7 @@ pub enum Value {
     /// Refers to the result of an [Instruction].
     InstructionResult(InstructionRef),
 
-    /// Represents a sequence of zero or more values, with the same semantics as
-    /// a comma-separated list of expressions in Lua.
-    MultipleValues(EntityList<ValueRef>),
+    Unpack(ValueRef, u32),
 
     /// A constant representing the Lua `nil` value.
     Nil,
@@ -118,19 +154,6 @@ pub enum Value {
 
     /// A constant representing a Lua string.
     String(StringRef),
-}
-
-/// The type of a [Value].
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum Type {
-    Dynamic,
-    DynamicPack,
-    Local,
-    RawBool,
-    RawI64,
-    RawF64,
-    RawString,
-    Tuple(EntityList<TypeRef>),
 }
 
 impl<'a> From<&'a Value> for Value {
@@ -191,6 +214,7 @@ pub struct Graph {
     pub values: InterningMap<ValueRef, Value>,
     pub instructions: PrimaryMap<InstructionRef, Instruction>,
     pub blocks: PrimaryMap<BlockRef, Block>,
+    pub value_lists: ListPool<ValueRef>,
     pub value_maps: MapForest<ValueRef, ValueRef>,
 }
 
@@ -201,6 +225,7 @@ impl Graph {
             values: InterningMap::new(),
             instructions: PrimaryMap::new(),
             blocks: PrimaryMap::new(),
+            value_lists: ListPool::new(),
             value_maps: MapForest::new(),
         }
     }

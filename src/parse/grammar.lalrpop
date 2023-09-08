@@ -1,0 +1,255 @@
+use {
+    super::{Error, lex::{self, Numeral, Token}},
+    crate::{ir::{ValueList, ValueMap, ValueRef}, parse::chunk_builder::ChunkBuilder},
+    std::{borrow::Cow, cell::RefCell},
+};
+
+grammar<'a>(builder: &RefCell<ChunkBuilder<'a>>);
+
+pub Statement: () = {
+    ";" => (),
+    "break" =>? builder.borrow_mut().break_statement(),
+    "goto" <target:Name> =>? builder.borrow_mut().goto_statement(target),
+    "::" <name:Name> "::" =>? builder.borrow_mut().label(name),
+};
+
+Do: () = {
+    "do",
+};
+
+End: () = {
+    "end",
+};
+
+pub Expression: ValueRef = {
+    <lhs:Expression> "or" <rhs:AndExpression> => todo!(),
+    AndExpression,
+};
+
+AndExpression: ValueRef = {
+    <lhs:AndExpression> "and" <rhs:ComparisonExpression> => todo!(),
+    ComparisonExpression,
+};
+
+ComparisonExpression: ValueRef = {
+    <lhs:ComparisonExpression> "<" <rhs:BitorExpression> => builder.borrow_mut().lt_expression(lhs, rhs),
+    <lhs:ComparisonExpression> ">" <rhs:BitorExpression> => builder.borrow_mut().gt_expression(lhs, rhs),
+    <lhs:ComparisonExpression> "<=" <rhs:BitorExpression> => builder.borrow_mut().le_expression(lhs, rhs),
+    <lhs:ComparisonExpression> ">=" <rhs:BitorExpression> => builder.borrow_mut().ge_expression(lhs, rhs),
+    <lhs:ComparisonExpression> "~=" <rhs:BitorExpression> => builder.borrow_mut().ne_expression(lhs, rhs),
+    <lhs:ComparisonExpression> "==" <rhs:BitorExpression> => builder.borrow_mut().eq_expression(lhs, rhs),
+    BitorExpression,
+};
+
+BitorExpression: ValueRef = {
+    <lhs:BitorExpression> "|" <rhs:BitxorExpression> => builder.borrow_mut().bitor_expression(lhs, rhs),
+    BitxorExpression,
+};
+
+BitxorExpression: ValueRef = {
+    <lhs:BitxorExpression> "~" <rhs:BitandExpression> => builder.borrow_mut().bitxor_expression(lhs, rhs),
+    BitandExpression,
+};
+
+BitandExpression: ValueRef = {
+    <lhs:BitandExpression> "&" <rhs:ShiftExpression> => builder.borrow_mut().bitand_expression(lhs, rhs),
+    ShiftExpression,
+};
+
+ShiftExpression: ValueRef = {
+    <lhs:ShiftExpression> "<<" <rhs:ConcatExpression> => builder.borrow_mut().shl_expression(lhs, rhs),
+    <lhs:ShiftExpression> ">>" <rhs:ConcatExpression> => builder.borrow_mut().shr_expression(lhs, rhs),
+    ConcatExpression,
+};
+
+ConcatExpression: ValueRef = {
+    <lhs:AddSubExpression> ".." <rhs:ConcatExpression> => builder.borrow_mut().concat_expression(lhs, rhs),
+    AddSubExpression,
+};
+
+AddSubExpression: ValueRef = {
+    <lhs:AddSubExpression> "+" <rhs:MulDivRemExpression> => builder.borrow_mut().add_expression(lhs, rhs),
+    <lhs:AddSubExpression> "-" <rhs:MulDivRemExpression> => builder.borrow_mut().sub_expression(lhs, rhs),
+    MulDivRemExpression,
+};
+
+MulDivRemExpression: ValueRef = {
+    <lhs:MulDivRemExpression> "*" <rhs:UnaryExpression> => builder.borrow_mut().mul_expression(lhs, rhs),
+    <lhs:MulDivRemExpression> "/" <rhs:UnaryExpression> => builder.borrow_mut().div_expression(lhs, rhs),
+    <lhs:MulDivRemExpression> "//" <rhs:UnaryExpression> => builder.borrow_mut().floordiv_expression(lhs, rhs),
+    <lhs:MulDivRemExpression> "%" <rhs:UnaryExpression> => builder.borrow_mut().rem_expression(lhs, rhs),
+};
+
+UnaryExpression: ValueRef = {
+    "not" <rhs:UnaryExpression> => builder.borrow_mut().not_expression(rhs),
+    "#" <rhs:UnaryExpression> => builder.borrow_mut().len_expression(rhs),
+    "~" <rhs:UnaryExpression> => builder.borrow_mut().bitnot_expression(rhs),
+    "-" <rhs:UnaryExpression> => builder.borrow_mut().neg_expression(rhs),
+    PowExpression,
+};
+
+PowExpression: ValueRef = {
+    <lhs:OperandExpression> "^" <rhs:PowExpression> => builder.borrow_mut().pow_expression(lhs, rhs),
+    OperandExpression,
+};
+
+OperandExpression: ValueRef = {
+    "nil" => builder.borrow_mut().nil(),
+    "false" => builder.borrow_mut().bool(false),
+    "true" => builder.borrow_mut().bool(true),
+    <value:Numeral> => builder.borrow_mut().numeral(value),
+    "..." =>? builder.borrow_mut().ellipses(),
+    StringExpression,
+    PrefixExpression,
+};
+
+PrefixExpression: ValueRef = {
+    <name:Name> =>? builder.borrow_mut().name_expression(name),
+
+    <table:PrefixExpression> "[" <key:Expression> "]" => builder.borrow_mut().index(table, key),
+
+    <table:PrefixExpression> "." <name:Name> => {
+        let mut builder = builder.borrow_mut();
+        let key = builder.string(name);
+        builder.index(table, key)
+    },
+
+    "(" <inner:Expression> ")" => builder.borrow_mut().parenthesized_expression(inner),
+
+    FunctionCall,
+};
+
+FunctionCall: ValueRef = {
+    <callee:PrefixExpression> <args:Args> => builder.borrow_mut().call(callee, args),
+
+    <receiver:PrefixExpression> <method:Name> <args:Args> => {
+        let mut builder = builder.borrow_mut();
+        let method = builder.string(method);
+        let function = builder.index(receiver, method);
+        todo!()
+    },
+};
+
+Args: ValueRef = {
+    StringExpression,
+    TableConstructor,
+};
+
+StringExpression: ValueRef = {
+    <value:LiteralString> => builder.borrow_mut().string(value),
+};
+
+TableConstructor: ValueRef = {
+    "{" <values:(<TableValues> FieldSeparator?)?> "}" => todo!(),
+};
+
+TableValues: (ValueMap, ValueList, Option<ValueRef>) = {
+    <accum:TableValues> FieldSeparator <field:Field> => {
+        let mut builder = builder.borrow_mut();
+
+        let (mut map, mut list, mut trailing) = accum;
+
+        if let Some(trailing) = trailing.take() {
+            list.push(trailing, &mut builder.graph.value_lists);
+        }
+
+        let (key, value) = field;
+
+        if let Some(key) = key {
+            map.insert(key, value, &mut builder.graph.value_maps, &());
+        } else {
+            trailing = Some(value);
+        }
+
+        (map, list, trailing)
+    },
+
+    <field:Field> => {
+        let (key, value) = field;
+        if let Some(key) = key {
+            let mut map = ValueMap::new();
+            map.insert(key, value, &mut builder.borrow_mut().graph.value_maps, &());
+            (map, ValueList::new(), None)
+        } else {
+            (ValueMap::new(), ValueList::new(), Some(value))
+        }
+    },
+};
+
+Field: (Option<ValueRef>, ValueRef) = {
+    "[" <key:Expression> "]" "=" <value:Expression> => (Some(key), value),
+    <name:Name> "=" <value:Expression> => (Some(builder.borrow_mut().string(name)), value),
+    <value:Expression> => (None, value),
+};
+
+FieldSeparator: () = {
+    ";",
+    ",",
+};
+
+extern {
+    type Location = usize;
+
+    type Error = Error;
+
+    enum Token<'a> {
+        Name => Token::Name(<&'a [u8]>),
+        LiteralString => Token::String(<Cow<'a, [u8]>>),
+        Numeral => Token::Numeral(<Numeral>),
+        "and" => Token::KwAnd,
+        "break" => Token::KwBreak,
+        "do" => Token::KwDo,
+        "else" => Token::KwElse,
+        "elseif" => Token::KwElseif,
+        "end" => Token::KwEnd,
+        "false" => Token::KwFalse,
+        "for" => Token::KwFor,
+        "function" => Token::KwFunction,
+        "goto" => Token::KwGoto,
+        "if" => Token::KwIf,
+        "in" => Token::KwIn,
+        "local" => Token::KwLocal,
+        "nil" => Token::KwNil,
+        "not" => Token::KwNot,
+        "or" => Token::KwOr,
+        "repeat" => Token::KwRepeat,
+        "return" => Token::KwReturn,
+        "then" => Token::KwThen,
+        "true" => Token::KwTrue,
+        "until" => Token::KwUntil,
+        "while" => Token::KwWhile,
+        "+" => Token::Plus,
+        "-" => Token::Minus,
+        "*" => Token::Star,
+        "/" => Token::Slash,
+        "%" => Token::Percent,
+        "^" => Token::Caret,
+        "#" => Token::Hash,
+        "&" => Token::Ampersand,
+        "~" => Token::Tilde,
+        "|" => Token::Pipe,
+        "<<" => Token::LAngle2,
+        ">>" => Token::RAngle2,
+        "//" => Token::Slash2,
+        "==" => Token::Equals2,
+        "~=" => Token::TildeEquals,
+        "<=" => Token::LAngleEquals,
+        ">=" => Token::RAngleEquals,
+        "<" => Token::LAngle,
+        ">" => Token::RAngle,
+        "=" => Token::Equals,
+        "(" => Token::LParen,
+        ")" => Token::RParen,
+        "{" => Token::LCurly,
+        "}" => Token::RCurly,
+        "[" => Token::LSquare,
+        "]" => Token::RSquare,
+        "::" => Token::Colon2,
+        ";" => Token::Semicolon,
+        ":" => Token::Colon,
+        "," => Token::Comma,
+        "." => Token::Dot,
+        ".." => Token::Dot2,
+        "..." => Token::Dot3,
+    }
+}

@@ -2,6 +2,7 @@ use {
     super::{Error, Result},
     lexical::{parse_integer_options, NumberFormatBuilder},
     logos::{Lexer, Logos},
+    std::borrow::Cow,
 };
 
 #[derive(Debug, Logos)]
@@ -64,21 +65,21 @@ enum Kind {
 
 const HEX_ESCAPE_FORMAT: u128 = NumberFormatBuilder::new().mantissa_radix(16).build();
 
-pub fn single_quote_callback<'source, T>(lexer: &mut Lexer<'source, T>) -> Result<Vec<u8>>
+pub fn single_quote_callback<'source, T>(lexer: &mut Lexer<'source, T>) -> Result<Cow<'source, [u8]>>
 where
     T: Logos<'source, Source = [u8]>,
 {
     callback(lexer, Kind::SingleQuote)
 }
 
-pub fn double_quote_callback<'source, T>(lexer: &mut Lexer<'source, T>) -> Result<Vec<u8>>
+pub fn double_quote_callback<'source, T>(lexer: &mut Lexer<'source, T>) -> Result<Cow<'source, [u8]>>
 where
     T: Logos<'source, Source = [u8]>,
 {
     callback(lexer, Kind::DoubleQuote)
 }
 
-fn callback<'source, T>(lexer: &mut Lexer<'source, T>, kind: Kind) -> Result<Vec<u8>>
+fn callback<'source, T>(lexer: &mut Lexer<'source, T>, kind: Kind) -> Result<Cow<'source, [u8]>>
 where
     T: Logos<'source, Source = [u8]>,
 {
@@ -190,5 +191,5 @@ where
 
     lexer.bump(sub_lexer.span().end);
     status?;
-    Ok(contents)
+    Ok(Cow::Owned(contents))
 }

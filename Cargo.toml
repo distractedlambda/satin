@@ -3,12 +3,16 @@ name = "satin"
 version = "0.1.0"
 edition = "2021"
 
+[build-dependencies]
+lalrpop = "0.20"
+
 [dependencies]
 ahash = "0.8"
 cranelift-bforest = "0.99"
 cranelift-codegen = "0.99"
 cranelift-entity = "0.99"
 cranelift-frontend = "0.99"
+lalrpop-util = "0.20"
 logos = "0.13"
 thiserror = "1"
 

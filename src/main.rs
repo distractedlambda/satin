@@ -1,5 +1,4 @@
 mod ir;
-mod lex;
 mod parse;
 
 fn main() {

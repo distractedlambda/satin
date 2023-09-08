@@ -1,10 +1,9 @@
 //! Lexical analysis of Lua source code.
 
+use std::borrow::Cow;
+
+use logos::Logos;
 pub use {error::Error, numeral::Numeral};
-use {
-    logos::{Lexer, Logos},
-    std::ops::Range,
-};
 
 mod error;
 mod long_comment;
@@ -14,24 +13,17 @@ mod short_string;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-pub struct TokenStream<'source> {
-    lexer: Lexer<'source, Token>,
-    backtrack_stack: Vec<SpannedToken>,
-}
-
-pub type SpannedToken = (Token, Range<usize>);
-
 #[derive(Clone, Debug, Logos)]
 #[logos(error = Error, skip br"[ \f\n\r\t\v]", skip br"--[^\r\n]*")]
-pub enum Token {
+pub enum Token<'source> {
     #[regex(br"--\[=*\[", long_comment::callback)]
-    #[regex(b"[_a-zA-Z][_0-9a-zA-Z]*")]
-    Name,
+    #[regex(b"[_a-zA-Z][_0-9a-zA-Z]*", |lex| lex.slice())]
+    Name(&'source [u8]),
 
     #[token(b"'", short_string::single_quote_callback)]
     #[token(b"\"", short_string::double_quote_callback)]
     #[regex(br"\[=*\[", long_literal::callback)]
-    String(Vec<u8>),
+    String(Cow<'source, [u8]>),
 
     #[regex(b"[0-9]+", numeral::dec_int_callback)]
     #[regex(b"0[xX][0-9a-fA-F]+", numeral::hex_int_callback)]
@@ -209,34 +201,4 @@ pub enum Token {
 
     #[token(b"...")]
     Dot3,
-}
-
-impl<'source> TokenStream<'source> {
-    pub fn new(source: &'source [u8]) -> Self {
-        Self {
-            lexer: Token::lexer(source),
-            backtrack_stack: Vec::new(),
-        }
-    }
-
-    pub fn source(&self) -> &'source [u8] {
-        self.lexer.source()
-    }
-
-    pub fn backtrack(&mut self, token: SpannedToken) {
-        self.backtrack_stack.push(token)
-    }
-}
-
-impl<'source> Iterator for TokenStream<'source> {
-    type Item = Result<SpannedToken>;
-
-    fn next(&mut self) -> Option<Result<SpannedToken>> {
-        Some(if let Some(token) = self.backtrack_stack.pop() {
-            Ok(token)
-        } else {
-            let token = self.lexer.next()?;
-            token.map(|token| (token, self.lexer.span()))
-        })
-    }
 }

@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use {
     super::{Error, Result},
     logos::{Lexer, Logos},
@@ -19,7 +21,7 @@ enum SubToken {
     ClosingLongBracket,
 }
 
-pub fn callback<'source, T>(lexer: &mut Lexer<'source, T>) -> Result<Vec<u8>>
+pub fn callback<'source, T>(lexer: &mut Lexer<'source, T>) -> Result<Cow<'source, [u8]>>
 where
     T: Logos<'source, Source = [u8]>,
 {
@@ -48,5 +50,5 @@ where
     }
 
     lexer.bump(sub_lexer.span().end);
-    Ok(contents)
+    Ok(Cow::Owned(contents))
 }
