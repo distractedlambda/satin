@@ -5,7 +5,7 @@ mod ast;
 mod lex;
 mod string_pool;
 
-// lalrpop_mod!(grammar, "/parse/grammar.rs");
+lalrpop_mod!(grammar, "/parse/parser.rs");
 
 pub type LexicalError = lex::Error;
 

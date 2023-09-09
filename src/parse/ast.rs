@@ -1,5 +1,5 @@
 use {
-    super::StringRef,
+    super::{lex::Numeral, Result, StringRef},
     cranelift_bforest::{Map, MapForest},
     cranelift_entity::{packed_option::PackedOption, EntityList, ListPool, PrimaryMap},
     std::{
@@ -224,6 +224,204 @@ impl<'a> Builder<'a> {
             current_block: Cell::new(None.into()),
         }
     }
+
+    fn expression(&self, node: Expression) -> ExpressionRef {
+        unsafe { (*self.ast.get()).expressions.push(node) }
+    }
+
+    pub fn expression_list(
+        &self,
+        mut list: EntityList<ExpressionRef>,
+        expression: ExpressionRef,
+    ) -> EntityList<ExpressionRef> {
+        unsafe { list.push(expression, &mut (*self.ast.get()).expression_lists) };
+        list
+    }
+
+    pub fn string(&self, contents: StringRef) -> ExpressionRef {
+        self.expression(Expression::String(contents))
+    }
+
+    pub fn or(&self, lhs: ExpressionRef, rhs: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Or(lhs, rhs))
+    }
+
+    pub fn table(&self, fields: EntityList<FieldRef>) -> ExpressionRef {
+        self.expression(Expression::Table(fields))
+    }
+
+    pub fn call(
+        &self,
+        receiver: ExpressionRef,
+        method: PackedOption<StringRef>,
+        args: EntityList<ExpressionRef>,
+    ) -> ExpressionRef {
+        self.expression(Expression::Call(receiver, method, args))
+    }
+
+    pub fn parenthesized(&self, inner: ExpressionRef) -> ExpressionRef {
+        if unsafe { (*self.ast.get()).expressions[inner].is_multi_value() } {
+            self.expression(Expression::Scalarize(inner))
+        } else {
+            inner
+        }
+    }
+
+    pub fn member_expression(&self, table: ExpressionRef, name: StringRef) -> ExpressionRef {
+        self.index(table, self.string(name))
+    }
+
+    pub fn name_expression(&self, name: StringRef) -> Result<ExpressionRef> {
+        todo!()
+    }
+
+    pub fn index(&self, table: ExpressionRef, key: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Index(table, key))
+    }
+
+    pub fn ellipses(&self) -> Result<ExpressionRef> {
+        todo!()
+    }
+
+    pub fn true_(&self) -> ExpressionRef {
+        self.expression(Expression::True)
+    }
+
+    pub fn false_(&self) -> ExpressionRef {
+        self.expression(Expression::False)
+    }
+
+    pub fn nil(&self) -> ExpressionRef {
+        self.expression(Expression::Nil)
+    }
+
+    pub fn unm(&self, operand: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Unm(operand))
+    }
+
+    pub fn bnot(&self, operand: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Bnot(operand))
+    }
+
+    pub fn len(&self, operand: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Len(operand))
+    }
+
+    pub fn not(&self, operand: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Not(operand))
+    }
+
+    pub fn mod_(&self, lhs: ExpressionRef, rhs: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Mod(lhs, rhs))
+    }
+
+    pub fn idiv(&self, lhs: ExpressionRef, rhs: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Idiv(lhs, rhs))
+    }
+
+    pub fn div(&self, lhs: ExpressionRef, rhs: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Div(lhs, rhs))
+    }
+
+    pub fn mul(&self, lhs: ExpressionRef, rhs: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Mul(lhs, rhs))
+    }
+
+    pub fn sub(&self, lhs: ExpressionRef, rhs: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Sub(lhs, rhs))
+    }
+
+    pub fn add(&self, lhs: ExpressionRef, rhs: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Add(lhs, rhs))
+    }
+
+    pub fn concat(&self, lhs: ExpressionRef, rhs: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Concat(lhs, rhs))
+    }
+
+    pub fn shr(&self, lhs: ExpressionRef, rhs: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Shr(lhs, rhs))
+    }
+
+    pub fn shl(&self, lhs: ExpressionRef, rhs: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Shl(lhs, rhs))
+    }
+
+    pub fn band(&self, lhs: ExpressionRef, rhs: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Band(lhs, rhs))
+    }
+
+    pub fn bor(&self, lhs: ExpressionRef, rhs: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Bor(lhs, rhs))
+    }
+
+    pub fn bxor(&self, lhs: ExpressionRef, rhs: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Bxor(lhs, rhs))
+    }
+
+    pub fn eq(&self, lhs: ExpressionRef, rhs: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Eq(lhs, rhs))
+    }
+
+    pub fn ne(&self, lhs: ExpressionRef, rhs: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Ne(lhs, rhs))
+    }
+
+    pub fn ge(&self, lhs: ExpressionRef, rhs: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Ge(lhs, rhs))
+    }
+
+    pub fn le(&self, lhs: ExpressionRef, rhs: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Le(lhs, rhs))
+    }
+
+    pub fn lt(&self, lhs: ExpressionRef, rhs: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Lt(lhs, rhs))
+    }
+
+    pub fn gt(&self, lhs: ExpressionRef, rhs: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Gt(lhs, rhs))
+    }
+
+    pub fn and(&self, lhs: ExpressionRef, rhs: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::And(lhs, rhs))
+    }
+
+    pub fn pow(&self, lhs: ExpressionRef, rhs: ExpressionRef) -> ExpressionRef {
+        self.expression(Expression::Pow(lhs, rhs))
+    }
+
+    pub fn numeral(&self, value: Numeral) -> ExpressionRef {
+        self.expression(match value {
+            Numeral::Int(v) => Expression::Int(v),
+            Numeral::Float(v) => Expression::Float(v),
+        })
+    }
+
+    fn field(&self, node: Field) -> FieldRef {
+        unsafe { (*self.ast.get()).fields.push(node) }
+    }
+
+    pub fn field_list(
+        &self,
+        mut list: EntityList<FieldRef>,
+        field: FieldRef,
+    ) -> EntityList<FieldRef> {
+        unsafe { list.push(field, &mut (*self.ast.get()).field_lists) };
+        list
+    }
+
+    pub fn ordinal_field(&self, value: ExpressionRef) -> FieldRef {
+        self.field(Field::Ordinal(value))
+    }
+
+    pub fn member_field(&self, name: StringRef, value: ExpressionRef) -> FieldRef {
+        self.keyed_field(self.string(name), value)
+    }
+
+    pub fn keyed_field(&self, key: ExpressionRef, value: ExpressionRef) -> FieldRef {
+        self.field(Field::Keyed(key, value))
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -248,10 +446,14 @@ pub enum Expression {
     Bnot(ExpressionRef),
     Bor(ExpressionRef, ExpressionRef),
     Bxor(ExpressionRef, ExpressionRef),
-    Call(ExpressionRef, EntityList<ExpressionRef>),
+    Call(
+        ExpressionRef,
+        PackedOption<StringRef>,
+        EntityList<ExpressionRef>,
+    ),
     Concat(ExpressionRef, ExpressionRef),
     Div(ExpressionRef, ExpressionRef),
-    Ellipses,
+    Ellipses(FunctionRef),
     Eq(ExpressionRef, ExpressionRef),
     False,
     Float(u64),
@@ -272,12 +474,20 @@ pub enum Expression {
     Not(ExpressionRef),
     Or(ExpressionRef, ExpressionRef),
     Pow(ExpressionRef, ExpressionRef),
+    Scalarize(ExpressionRef),
     Shl(ExpressionRef, ExpressionRef),
+    Shr(ExpressionRef, ExpressionRef),
     String(StringRef),
     Sub(ExpressionRef, ExpressionRef),
     Table(EntityList<FieldRef>),
     True,
     Unm(ExpressionRef),
+}
+
+impl Expression {
+    pub fn is_multi_value(&self) -> bool {
+        matches!(self, Self::Call(_, _, _) | Self::Ellipses(_))
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -322,7 +532,7 @@ pub struct NumericalForLoop {
 pub enum Statement {
     Assign(EntityList<AssignmentTargetRef>, EntityList<ExpressionRef>),
     Break,
-    Call(ExpressionRef, EntityList<ExpressionRef>),
+    Expression(ExpressionRef),
     Do(BlockRef),
     GenericForLoop(GenericForLoopRef),
     Goto(StringRef),
