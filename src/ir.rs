@@ -1,7 +1,7 @@
 use {
     ahash::AHashMap,
     cranelift_bforest::{Map, MapForest},
-    cranelift_entity::{packed_option::PackedOption, EntityList, EntityRef, ListPool, PrimaryMap},
+    cranelift_entity::{EntityList, EntityRef, ListPool, PrimaryMap},
     std::{borrow::Borrow, hash::Hash, sync::Arc},
 };
 
@@ -14,132 +14,53 @@ macro_rules! id_type {
     };
 }
 
-id_type!(BlockRef);
-id_type!(InstructionRef);
+id_type!(ContinuationRef);
 id_type!(StringRef);
 id_type!(ValueRef);
-id_type!(TypeRef);
 
 pub type ValueList = EntityList<ValueRef>;
 
 pub type ValueMap = Map<ValueRef, ValueRef>;
 
-/// An operation carried out by an [Instruction].
 #[derive(Clone)]
 pub enum Op {
-    /// Constructs and initializes a new table, with semantics modeled after
-    /// Lua's [table
-    /// constructors][https://www.lua.org/manual/5.4/manual.html#3.4.9].
-    ///
-    /// Note that, unlike the Lua construct, this instruction cannot contain
-    /// nested computation or control; it merely represents the final step of
-    /// collecting already-evaluated field initializers into a table.
-    NewTable {
-        map: ValueMap,
-        list: ValueList,
-        trailing: PackedOption<ValueRef>,
-    },
-
-    /// Constructs a new `local` variable with an initial value. Since `local`s
-    /// in Lua have "location semantics" (mutations are observed everywhere in
-    /// the local scope, including within escaped closures), we model them as a
-    /// distinct kind of mutable object holding a single value, where the IR
-    /// only tracks that object, not its contained value.
-    NewLocal {
-        init: ValueRef,
-    },
-
-    /// Reads the current value of a `local` variable.
-    LocalLoad {
-        local: ValueRef,
-    },
-
-    /// Writes a new value to a `local` variable.
-    LocalStore {
-        local: ValueRef,
-        value: ValueRef,
-    },
-
-    /// Performs a Lua indexed assignment (`a[b] = c` or `a.b = c`, or `a = b`
-    /// where `a` does not resolve to a `local`), possibly dispatching to a
-    /// metamethod.
-    Newindex {
-        table: ValueRef,
-        key: ValueRef,
-        value: ValueRef,
-    },
-
-    /// Performs a Lua function call in non-tail position, possibly dispatching
-    /// to a metamethod. The single `args` value represents the full pack of
-    /// arguments to the function.
-    Call(ValueRef, ValueList),
-
-    /// Performs a Lua function call in tail position, possibly dispatching to a
-    /// metamethod. The single `args` value represents the full pack of
-    /// arguments to the function.
-    TailCall {
-        callee: ValueRef,
-        args: ValueRef,
-    },
-
-    /// Performs an unconditional branch to a [Block], potentially passing
-    /// [Value]s for the block's arguments.
-    Branch {
-        target: BlockRef,
-        args: ValueList,
-    },
-
-    /// Performs a conditional branch to a [Block], potentially passing [Value]s
-    /// for the block's arguments. The treatment of the `condition` follow's
-    /// Lua's semantics (namely, `nil` and `false` are the only non-true
-    /// values).
-    BranchIf {
-        target: BlockRef,
-        condition: ValueRef,
-        args: ValueList,
-    },
-
-    /// Performs a `return` from the containing function.
-    Return(ValueList),
-
-    Add(ValueRef, ValueRef),
-    BitAnd(ValueRef, ValueRef),
-    BitOr(ValueRef, ValueRef),
-    BitXor(ValueRef, ValueRef),
-    Concat(ValueRef, ValueRef),
-    Div(ValueRef, ValueRef),
-    Eq(ValueRef, ValueRef),
-    Floordiv(ValueRef, ValueRef),
-    Ge(ValueRef, ValueRef),
-    Gt(ValueRef, ValueRef),
-    Index(ValueRef, ValueRef),
-    Le(ValueRef, ValueRef),
-    Lt(ValueRef, ValueRef),
-    Mul(ValueRef, ValueRef),
-    Ne(ValueRef, ValueRef),
-    Pow(ValueRef, ValueRef),
-    Rem(ValueRef, ValueRef),
-    Sub(ValueRef, ValueRef),
-
-    Not(ValueRef),
-    Length(ValueRef),
-    BitNot(ValueRef),
-    Neg(ValueRef),
+    Add,
+    BitAnd,
+    BitNot,
+    BitOr,
+    BitXor,
+    Concat,
+    Div,
+    Eq,
+    Floordiv,
+    Ge,
+    Gt,
+    Index,
+    Le,
+    Length,
+    LocalLoad,
+    LocalStore,
+    Lt,
+    Mul,
+    Ne,
+    Neg,
+    Newindex,
+    NewLocal,
+    NewTable,
+    Not,
+    Pow,
+    Rem,
+    Sub,
 }
 
-/// An operand to an [Instruction]. [Value]s may express computation by being
-/// defined in terms of other [Value]s, but are always pure, and are prohibited
-/// from forming cycles on their own.
+pub enum Continuation {
+    Return,
+    Perform(Op, ContinuationRef),
+    Apply(ValueList, ContinuationRef),
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Value {
-    /// Refers to an indexed argument of a [Block].
-    BlockArg(BlockRef, u32),
-
-    /// Refers to the result of an [Instruction].
-    InstructionResult(InstructionRef),
-
-    Unpack(ValueRef, u32),
-
     /// A constant representing the Lua `nil` value.
     Nil,
 
@@ -160,23 +81,6 @@ impl<'a> From<&'a Value> for Value {
     fn from(value: &'a Value) -> Self {
         value.clone()
     }
-}
-
-/// A control-dependent operation, which may cause or observe side-effects.
-/// Every [Instruction] exists within a [Block], in a linear order relative to
-/// other [Instruction]s in that same [Block].
-#[derive(Clone)]
-pub struct Instruction {
-    op: Op,
-    block: PackedOption<BlockRef>,
-    next: PackedOption<InstructionRef>,
-    prior: PackedOption<InstructionRef>,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct Block {
-    head: PackedOption<InstructionRef>,
-    tail: PackedOption<InstructionRef>,
 }
 
 /// A [PrimaryMap] augmented with a hash table that deduplicates entities
@@ -212,8 +116,6 @@ impl<K: EntityRef, V> InterningMap<K, V> {
 pub struct Graph {
     pub strings: InterningMap<StringRef, Arc<[u8]>>,
     pub values: InterningMap<ValueRef, Value>,
-    pub instructions: PrimaryMap<InstructionRef, Instruction>,
-    pub blocks: PrimaryMap<BlockRef, Block>,
     pub value_lists: ListPool<ValueRef>,
     pub value_maps: MapForest<ValueRef, ValueRef>,
 }
@@ -223,79 +125,8 @@ impl Graph {
         Self {
             strings: InterningMap::new(),
             values: InterningMap::new(),
-            instructions: PrimaryMap::new(),
-            blocks: PrimaryMap::new(),
             value_lists: ListPool::new(),
             value_maps: MapForest::new(),
         }
-    }
-
-    pub fn new_block(&mut self) -> BlockRef {
-        self.blocks.push(Block {
-            head: None.into(),
-            tail: None.into(),
-        })
-    }
-
-    pub fn new_instruction(&mut self, op: Op) -> InstructionRef {
-        self.instructions.push(Instruction {
-            op,
-            block: None.into(),
-            next: None.into(),
-            prior: None.into(),
-        })
-    }
-
-    pub fn remove_instruction(&mut self, instruction: InstructionRef) {
-        let instruction_data = &mut self.instructions[instruction];
-
-        let (block, next, prior) = (
-            instruction_data.block.take(),
-            instruction_data.next.take(),
-            instruction_data.prior.take(),
-        );
-
-        if let Some(block) = block {
-            if let Some(next) = next {
-                self.instructions[next].prior = prior.into();
-            } else {
-                self.blocks[block].tail = prior.into();
-            }
-
-            if let Some(prior) = prior {
-                self.instructions[prior].next = next.into();
-            } else {
-                self.blocks[block].head = next.into();
-            }
-        } else {
-            debug_assert!(next.is_none());
-            debug_assert!(prior.is_none());
-        }
-    }
-
-    pub fn append_instruction(&mut self, block: BlockRef, instruction: InstructionRef) {
-        let block_data = &mut self.blocks[block];
-        let instruction_data = &mut self.instructions[instruction];
-
-        debug_assert!(instruction_data.block.is_none());
-        debug_assert!(instruction_data.next.is_none());
-        debug_assert!(instruction_data.prior.is_none());
-
-        instruction_data.block = block.into();
-
-        if let Some(prior) = block_data.tail.expand() {
-            instruction_data.prior = prior.into();
-            self.instructions[prior].next = instruction.into();
-        } else {
-            block_data.head = instruction.into();
-        }
-
-        block_data.tail = instruction.into();
-    }
-
-    pub fn append_new_instruction(&mut self, block: BlockRef, op: Op) -> InstructionRef {
-        let instruction = self.new_instruction(op);
-        self.append_instruction(block, instruction);
-        instruction
     }
 }
