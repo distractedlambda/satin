@@ -1,8 +1,11 @@
-use {lalrpop_util::lalrpop_mod, std::result, thiserror::Error};
+pub use string_pool::{StringPool, StringRef};
+use {lalrpop_util::lalrpop_mod, lex::Token, std::result, thiserror::Error};
 
+mod ast;
 mod lex;
+mod string_pool;
 
-lalrpop_mod!(grammar, "/parse/grammar.rs");
+// lalrpop_mod!(grammar, "/parse/grammar.rs");
 
 pub type LexicalError = lex::Error;
 

@@ -1,8 +1,11 @@
 //! Lexical analysis of Lua source code.
 
-use std::borrow::Cow;
+use std::rc::Rc;
 
-use logos::Logos;
+use {
+    super::{StringPool, StringRef},
+    logos::Logos,
+};
 pub use {error::Error, numeral::Numeral};
 
 mod error;
@@ -13,17 +16,22 @@ mod short_string;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Clone, Debug, Logos)]
-#[logos(error = Error, skip br"[ \f\n\r\t\v]", skip br"--[^\r\n]*")]
-pub enum Token<'source> {
+pub struct Extras {
+    strings: Rc<StringPool>,
+    string_buffer: Vec<u8>,
+}
+
+#[derive(Clone, Copy, Debug, Logos)]
+#[logos(error = Error, extras = Extras, skip br"[ \f\n\r\t\v]", skip br"--[^\r\n]*")]
+pub enum Token {
     #[regex(br"--\[=*\[", long_comment::callback)]
-    #[regex(b"[_a-zA-Z][_0-9a-zA-Z]*", |lex| lex.slice())]
-    Name(&'source [u8]),
+    #[regex(b"[_a-zA-Z][_0-9a-zA-Z]*", |lex| lex.extras.strings.intern(lex.slice()))]
+    Name(StringRef),
 
     #[token(b"'", short_string::single_quote_callback)]
     #[token(b"\"", short_string::double_quote_callback)]
     #[regex(br"\[=*\[", long_literal::callback)]
-    String(Cow<'source, [u8]>),
+    String(StringRef),
 
     #[regex(b"[0-9]+", numeral::dec_int_callback)]
     #[regex(b"0[xX][0-9a-fA-F]+", numeral::hex_int_callback)]

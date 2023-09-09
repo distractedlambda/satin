@@ -1,10 +1,6 @@
-use {
-    super::{Error, lex::{self, Numeral, Token}},
-    crate::{ir::{ValueList, ValueMap, ValueRef}, parse::chunk_builder::ChunkBuilder},
-    std::{borrow::Cow, cell::RefCell},
-};
+use super::*;
 
-grammar<'a>(builder: &RefCell<ChunkBuilder<'a>>);
+grammar(builder: &ast::Builder);
 
 pub Statement: () = {
     ";" => (),
@@ -193,8 +189,8 @@ extern {
     type Error = Error;
 
     enum Token<'a> {
-        Name => Token::Name(<&'a [u8]>),
-        LiteralString => Token::String(<Cow<'a, [u8]>>),
+        Name => Token::Name(<StringRef>),
+        String => Token::String(<StringRef>),
         Numeral => Token::Numeral(<Numeral>),
         "and" => Token::KwAnd,
         "break" => Token::KwBreak,

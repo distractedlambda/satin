@@ -8,6 +8,7 @@ lalrpop = "0.20"
 
 [dependencies]
 ahash = "0.8"
+bumpalo = "3.13.0"
 cranelift-bforest = "0.99"
 cranelift-codegen = "0.99"
 cranelift-entity = "0.99"

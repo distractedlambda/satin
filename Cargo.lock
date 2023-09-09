@@ -854,6 +854,7 @@ name = "satin"
 version = "0.1.0"
 dependencies = [
  "ahash",
+ "bumpalo",
  "clap",
  "cranelift-bforest",
  "cranelift-codegen",

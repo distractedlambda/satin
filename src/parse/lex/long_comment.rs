@@ -1,5 +1,5 @@
 use {
-    super::Error,
+    super::{Error, Token},
     logos::{FilterResult, Lexer, Logos},
 };
 
@@ -13,10 +13,7 @@ enum SubToken {
     ClosingLongBracket,
 }
 
-pub fn callback<'source, T, R>(lexer: &mut Lexer<'source, T>) -> FilterResult<R, Error>
-where
-    T: Logos<'source, Source = [u8]>,
-{
+pub fn callback<T>(lexer: &mut Lexer<Token>) -> FilterResult<T, Error> {
     let open_len = lexer.span().len() - 2;
     let mut sub_lexer = SubToken::lexer(lexer.remainder());
     loop {

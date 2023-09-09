@@ -1,6 +1,7 @@
 use {
+    super::Token,
     lexical::{parse_float_options, NumberFormatBuilder},
-    logos::{Lexer, Logos},
+    logos::Lexer,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -16,10 +17,7 @@ const HEX_FLOAT_FORMAT: u128 = NumberFormatBuilder::new()
     .mantissa_radix(16)
     .build();
 
-pub fn dec_int_callback<'source, T>(lexer: &mut Lexer<'source, T>) -> Numeral
-where
-    T: Logos<'source, Source = [u8]>,
-{
+pub fn dec_int_callback(lexer: &mut Lexer<Token>) -> Numeral {
     match lexical::parse(lexer.slice()) {
         Ok(v) => Numeral::Int(v),
 
@@ -34,10 +32,7 @@ where
     }
 }
 
-pub fn hex_int_callback<'source, T>(lexer: &mut Lexer<'source, T>) -> Numeral
-where
-    T: Logos<'source, Source = [u8]>,
-{
+pub fn hex_int_callback(lexer: &mut Lexer<Token>) -> Numeral {
     let mut total = 0i64;
 
     for c in &lexer.slice()[2..] {
@@ -52,10 +47,7 @@ where
     Numeral::Int(total)
 }
 
-pub fn dec_float_callback<'source, T>(lexer: &mut Lexer<'source, T>) -> Numeral
-where
-    T: Logos<'source, Source = [u8]>,
-{
+pub fn dec_float_callback(lexer: &mut Lexer<Token>) -> Numeral {
     Numeral::Float(
         lexical::parse_with_options::<f64, _, DEC_FLOAT_FORMAT>(
             lexer.slice(),
@@ -66,10 +58,7 @@ where
     )
 }
 
-pub fn hex_float_callback<'source, T>(lexer: &mut Lexer<'source, T>) -> Numeral
-where
-    T: Logos<'source, Source = [u8]>,
-{
+pub fn hex_float_callback(lexer: &mut Lexer<Token>) -> Numeral {
     Numeral::Float(
         lexical::parse_with_options::<f64, _, HEX_FLOAT_FORMAT>(
             &lexer.slice()[2..],
