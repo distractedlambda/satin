@@ -1,6 +1,6 @@
 use {
     super::{Error, Result, Token},
-    crate::parse::StringRef,
+    crate::string_pool::StringRef,
     lexical::{parse_integer_options, NumberFormatBuilder},
     logos::{Lexer, Logos},
 };

@@ -1,10 +1,9 @@
 //! Lexical analysis of Lua source code.
 
-use std::rc::Rc;
-
 use {
-    super::{StringPool, StringRef},
+    crate::string_pool::{StringPool, StringRef},
     logos::Logos,
+    std::rc::Rc,
 };
 pub use {error::Error, numeral::Numeral};
 

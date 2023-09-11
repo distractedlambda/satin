@@ -1,14 +1,12 @@
 use {
+    crate::entity_ref_type,
     ahash::AHashMap,
     bumpalo::Bump,
-    cranelift_entity::{entity_impl, PrimaryMap},
+    cranelift_entity::PrimaryMap,
     std::{cell::UnsafeCell, ops::Index},
 };
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct StringRef(u32);
-
-entity_impl!(StringRef);
+entity_ref_type!(StringRef);
 
 pub struct StringPool {
     storage: Bump,

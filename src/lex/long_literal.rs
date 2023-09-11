@@ -1,6 +1,7 @@
+use crate::string_pool::StringRef;
+
 use {
     super::{Error, Result, Token},
-    crate::parse::StringRef,
     logos::{Lexer, Logos},
 };
 

@@ -13,7 +13,19 @@ use {
 
 grammar<'a>(builder: &'a ast::Builder<'a>);
 
-pub ExpressionList: EntityList<ExpressionRef> = {
+FunctionBody: () = {
+    FunctionParameters Block KwEnd => (),
+};
+
+FunctionParameters: () = {
+    "(" ParameterList? ")" => builder.enter_block(),
+};
+
+KwEnd: () => {
+    "end" => builder.leave_block(),
+};
+
+ExpressionList: EntityList<ExpressionRef> = {
     <accum:ExpressionList> "," <expression:Expression> => builder.expression_list(accum, expression),
     <expression:Expression> => builder.expression_list(EntityList::new(), expression),
 };
@@ -97,7 +109,12 @@ OperandExpression: ExpressionRef = {
     "..." =>? Ok(builder.ellipses()?),
     <value:Numeral> => builder.numeral(value),
     <value:String> => builder.string(value),
+    KwFunction FunctionBody => builder.leave_function(),
     PrefixExpression,
+};
+
+KwFunction: () = {
+    "function" => builder.enter_function(),
 };
 
 PrefixExpression: ExpressionRef = {
